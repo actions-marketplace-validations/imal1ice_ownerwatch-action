@@ -26,7 +26,7 @@ inputs:
     required: false
     default: "false"
   fail-on-drift:
-    description: "Fail the step when the report differs from the baseline (or when no baseline exists yet)."
+    description: "Fail the step when the report differs from the baseline, when no baseline exists yet, or when a disclosure does not match chain state. A run that could not read the chain always fails."
     required: false
     default: "true"
   disclosure:
@@ -38,13 +38,13 @@ inputs:
     required: false
     default: "true"
   logs-rpc:
-    description: "With disclosure: RPC for eth_getLogs in the role replay (default: a public full-history gateway, else rpc)."
+    description: "RPC for eth_getLogs in the role replay, for the drift check and the disclosure check (default for the drift check: the config's rpc_url; for the disclosure check: a public full-history gateway, else rpc)."
     required: false
     default: ""
   version:
-    description: "ownerwatch version to install from PyPI, e.g. 0.7.3. Empty installs the latest."
+    description: "ownerwatch version to install from PyPI. The default is the version this Action release was tested with, so a new ownerwatch release cannot read as drift. Set 'latest' to always take the newest."
     required: false
-    default: ""
+    default: "0.11.0"
 outputs:
   drifted:
     description: "true when the admin surface differs from the baseline or no baseline exists."
@@ -63,78 +63,69 @@ runs:
         python-version: "3.12"
     - name: Install ownerwatch
       shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
       run: |
-        if [ -n "${{ inputs.version }}" ]; then pip install -q "ownerwatch==${{ inputs.version }}"; else pip install -q ownerwatch; fi
+        set -euo pipefail
+        if [ -n "$VERSION" ] && [ "$VERSION" != "latest" ]; then pip install -q "ownerwatch==$VERSION"; else pip install -q ownerwatch; fi
         ownerwatch --version
+    # Inputs reach the scripts through env, never by interpolation into the script text: a label or path
+    # containing $(...) or a quote must stay data.
     - name: Probe the admin surface
       id: probe
       # a disclosure-only setup has no config to probe
       if: inputs.disclosure == '' || hashFiles(inputs.config) != ''
       shell: bash
+      env:
+        BASE: ${{ inputs.baseline }}
+        CONFIG: ${{ inputs.config }}
+        LABEL: ${{ inputs.label }}
+        RPC: ${{ inputs.rpc }}
+        ROLES_FROM_LOGS: ${{ inputs.roles-from-logs }}
+        LOGS_RPC: ${{ inputs.logs-rpc }}
       run: |
         set -euo pipefail
-        base="${{ inputs.baseline }}"
-        report="${base%.md}.new.md"
-        args=(probe --config "${{ inputs.config }}" --markdown --label "${{ inputs.label }}")
-        if [ -n "${{ inputs.rpc }}" ]; then args+=(--rpc "${{ inputs.rpc }}"); fi
-        if [ "${{ inputs.roles-from-logs }}" = "true" ]; then args+=(--roles-from-logs); fi
+        report="${BASE%.md}.new.md"
+        args=(probe --config "$CONFIG" --markdown --label "$LABEL")
+        if [ -n "$RPC" ]; then args+=(--rpc "$RPC"); fi
+        if [ "$ROLES_FROM_LOGS" = "true" ]; then args+=(--roles-from-logs); fi
+        if [ -n "$LOGS_RPC" ]; then args+=(--logs-rpc "$LOGS_RPC"); fi
         ownerwatch "${args[@]}" > "$report"
         echo "report=$report" >> "$GITHUB_OUTPUT"
     - name: Compare with the committed baseline
       id: compare
       if: inputs.disclosure == '' || hashFiles(inputs.config) != ''
       shell: bash
-      run: |
-        set -uo pipefail
-        base="${{ inputs.baseline }}"
-        report="${{ steps.probe.outputs.report }}"
-        # Compare the facts (the table: who controls what, type, delay), not the Findings prose,
-        # so a wording change in a new ownerwatch release does not read as drift.
-        strip() { grep -v '^_Generated' "$1" | sed '/^## Findings/,$d'; }
-        if [ ! -f "$base" ]; then
-          echo "drifted=true" >> "$GITHUB_OUTPUT"
-          {
-            echo "## Admin surface: no baseline yet"
-            echo
-            echo "Commit \`$report\` as \`$base\` to seed the baseline. Current report:"
-            echo
-            cat "$report"
-          } >> "$GITHUB_STEP_SUMMARY"
-          echo "::warning::No baseline at $base. Commit $report as $base to seed it."
-          cat "$report"
-          if [ "${{ inputs.fail-on-drift }}" = "true" ]; then exit 1; fi
-          exit 0
-        fi
-        if diff_out=$(diff <(strip "$base") <(strip "$report")); then
-          echo "drifted=false" >> "$GITHUB_OUTPUT"
-          echo "## Admin surface unchanged" >> "$GITHUB_STEP_SUMMARY"
-          echo "Admin surface unchanged."
-        else
-          echo "drifted=true" >> "$GITHUB_OUTPUT"
-          {
-            echo "## Admin surface changed"
-            echo
-            echo '```diff'
-            echo "$diff_out"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          echo "$diff_out"
-          echo "::error::Admin surface changed since the committed report at $base. Review the diff, then commit $report as $base if the change is expected."
-          if [ "${{ inputs.fail-on-drift }}" = "true" ]; then exit 1; fi
-        fi
+      env:
+        BASE: ${{ inputs.baseline }}
+        REPORT: ${{ steps.probe.outputs.report }}
+        FAIL_ON_DRIFT: ${{ inputs.fail-on-drift }}
+      run: '"$GITHUB_ACTION_PATH/compare.sh"'
     - name: Check the ERC-8241 disclosure
       id: disclosure
       # runs even when the drift check above failed, so one run reports both
       if: ${{ !cancelled() && inputs.disclosure != '' }}
       shell: bash
+      env:
+        DISCLOSURE: ${{ inputs.disclosure }}
+        RPC: ${{ inputs.rpc }}
+        ROLES_FROM_LOGS: ${{ inputs.disclosure-roles-from-logs }}
+        LOGS_RPC: ${{ inputs.logs-rpc }}
+        FAIL_ON_DRIFT: ${{ inputs.fail-on-drift }}
       run: |
         set -uo pipefail
-        if [ -z "${{ inputs.rpc }}" ]; then echo "::error::The disclosure input needs the rpc input."; exit 1; fi
-        args=(disclosure check "${{ inputs.disclosure }}" --rpc "${{ inputs.rpc }}")
-        if [ "${{ inputs.disclosure-roles-from-logs }}" != "true" ]; then args+=(--no-roles-from-logs); fi
-        if [ -n "${{ inputs.logs-rpc }}" ]; then args+=(--logs-rpc "${{ inputs.logs-rpc }}"); fi
-        out=$(ownerwatch "${args[@]}"); rc=$?
+        if [ -z "$RPC" ]; then echo "::error::The disclosure input needs the rpc input."; exit 1; fi
+        args=(disclosure check "$DISCLOSURE" --rpc "$RPC")
+        if [ "$ROLES_FROM_LOGS" != "true" ]; then args+=(--no-roles-from-logs); fi
+        if [ -n "$LOGS_RPC" ]; then args+=(--logs-rpc "$LOGS_RPC"); fi
+        rc=0
+        out=$(ownerwatch "${args[@]}") || rc=$?
         echo "$out"
+        if [ $rc -ne 0 ] && [ $rc -ne 1 ]; then
+          # exit 2: the chain could not be read, which says nothing about the disclosure
+          echo "::error::The ERC-8241 check could not run (exit $rc). See the log above."
+          exit "$rc"
+        fi
         {
           if [ $rc -eq 0 ]; then echo "## ERC-8241 disclosure matches chain state"; else echo "## ERC-8241 disclosure does not match chain state"; fi
           echo
@@ -144,5 +135,5 @@ runs:
         } >> "$GITHUB_STEP_SUMMARY"
         if [ $rc -eq 0 ]; then echo "ok=true" >> "$GITHUB_OUTPUT"; exit 0; fi
         echo "ok=false" >> "$GITHUB_OUTPUT"
-        echo "::error::The ERC-8241 disclosure at ${{ inputs.disclosure }} does not match chain state. Fix the disclosure or the contracts, then re-run."
-        if [ "${{ inputs.fail-on-drift }}" = "true" ]; then exit 1; fi
+        echo "::error::The ERC-8241 disclosure at $DISCLOSURE does not match chain state. Fix the disclosure or the contracts, then re-run."
+        if [ "$FAIL_ON_DRIFT" = "true" ]; then exit 1; fi

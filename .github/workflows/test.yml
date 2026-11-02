@@ -5,6 +5,21 @@ on:
   schedule:
     - cron: "23 7 * * 1"
 jobs:
+  compare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./tests/compare_test.sh
+  inputs-stay-data:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./
+        with:
+          config: tests/ownerwatch.yaml
+          baseline: tests/admin-surface.md
+          label: '$(touch pwned-label) `touch pwned-label2`'
+      - run: test ! -e pwned-label && test ! -e pwned-label2
   drift-check:
     runs-on: ubuntu-latest
     steps:

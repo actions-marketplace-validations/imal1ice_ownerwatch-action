@@ -37,13 +37,15 @@ jobs:
 | `label` | repository name | Heading of the report. |
 | `rpc` | | RPC that allows `eth_call`, overriding the config (single-chain configs only). Multi-chain configs set `probe_rpc_url` per chain. |
 | `roles-from-logs` | `false` | Replay role grants from logs to list every current role holder. Slower; works keyless on Ethereum, Optimism, Arbitrum, Gnosis and Polygon. |
-| `fail-on-drift` | `true` | Fail the step on drift or missing baseline. Set `false` to only report. |
+| `fail-on-drift` | `true` | Fail the step on drift, a missing baseline or a disclosure mismatch. Set `false` to only report. A run that could not read the chain always fails. |
 | `disclosure` | | Path to a committed [ERC-8241](https://ethereum-magicians.org/t/erc-8241-protocol-control-disclosure/28343) control disclosure (JSON). Checked against chain state; the step fails on any mismatch or undisclosed power. Needs `rpc`. |
 | `disclosure-roles-from-logs` | `true` | Replay role grants so every role holder counts towards completeness. |
 | `logs-rpc` | | RPC for the role replay's `eth_getLogs` (default: a public full-history gateway). |
-| `version` | latest | Pin an ownerwatch version from PyPI. |
+| `version` | tested version | ownerwatch version from PyPI. The default is pinned per Action release; `latest` takes the newest. |
 
-Drift is judged on the table of controllers, types and delays. The Findings section is shown in the summary but does not count, so rewording in a new ownerwatch release does not fail CI.
+Drift is judged on the report's Full facts block: every owner, pending owner, upgrade admin, implementation, beacon, role holder, Safe signer and module, threshold and delay, with full addresses, on every chain in the config. The Findings section is shown in the summary but does not count, so rewording in a new ownerwatch release does not fail CI. A baseline from before ownerwatch 0.11 has no facts block; the Action then compares the summary table and warns you to commit the new report.
+
+Each Action release pins the ownerwatch version it was tested with. A later Action release can see more of the same chain state, which then shows up once as a diff with a note naming both versions.
 
 ## ERC-8241 disclosures
 
