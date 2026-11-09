@@ -37,6 +37,10 @@ inputs:
     description: "With disclosure: replay role grants from logs so every role holder counts towards completeness."
     required: false
     default: "true"
+  badge:
+    description: "With disclosure: also write a shields.io endpoint-badge JSON (control disclosure: verified / N issues) to this path. Commit or publish it (e.g. to GitHub Pages) and embed https://img.shields.io/endpoint?url=<raw-url> in your README for a live badge that reddens on control drift. Needs ownerwatch >= 0.15.0 (older versions are skipped with a warning)."
+    required: false
+    default: ""
   logs-rpc:
     description: "RPC for eth_getLogs in the role replay, for the drift check and the disclosure check (default for the drift check: the config's rpc_url; for the disclosure check: a public full-history gateway, else rpc)."
     required: false
@@ -55,6 +59,9 @@ outputs:
   disclosure-ok:
     description: "true when the ERC-8241 disclosure matches chain state with nothing undisclosed; empty when no disclosure is set."
     value: ${{ steps.disclosure.outputs.ok }}
+  badge:
+    description: "Path of the shields.io endpoint-badge JSON written, when the badge input is set and supported; empty otherwise."
+    value: ${{ steps.disclosure.outputs.badge }}
 runs:
   using: "composite"
   steps:
@@ -111,6 +118,7 @@ runs:
         RPC: ${{ inputs.rpc }}
         ROLES_FROM_LOGS: ${{ inputs.disclosure-roles-from-logs }}
         LOGS_RPC: ${{ inputs.logs-rpc }}
+        BADGE: ${{ inputs.badge }}
         FAIL_ON_DRIFT: ${{ inputs.fail-on-drift }}
       run: |
         set -uo pipefail
@@ -118,6 +126,16 @@ runs:
         args=(disclosure check "$DISCLOSURE" --rpc "$RPC")
         if [ "$ROLES_FROM_LOGS" != "true" ]; then args+=(--no-roles-from-logs); fi
         if [ -n "$LOGS_RPC" ]; then args+=(--logs-rpc "$LOGS_RPC"); fi
+        if [ -n "$BADGE" ]; then
+          # --badge writes the shields.io JSON regardless of the check's exit code, so the badge always reflects
+          # the latest run. It needs ownerwatch >= 0.15.0; on an older pin, skip it with a warning rather than fail.
+          if ownerwatch disclosure check --help 2>/dev/null | grep -q -- '--badge'; then
+            args+=(--badge "$BADGE")
+            echo "badge=$BADGE" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::The badge input needs ownerwatch >= 0.15.0; the installed $(ownerwatch --version) has no --badge, so no badge was written. Set the version input to '0.15.0' or 'latest'."
+          fi
+        fi
         rc=0
         out=$(ownerwatch "${args[@]}") || rc=$?
         echo "$out"

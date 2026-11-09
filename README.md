@@ -40,6 +40,7 @@ jobs:
 | `fail-on-drift` | `true` | Fail the step on drift, a missing baseline or a disclosure mismatch. Set `false` to only report. A run that could not read the chain always fails. |
 | `disclosure` | | Path to a committed [ERC-8241](https://ethereum-magicians.org/t/erc-8241-protocol-control-disclosure/28343) control disclosure (JSON). Checked against chain state; the step fails on any mismatch or undisclosed power. Needs `rpc`. |
 | `disclosure-roles-from-logs` | `true` | Replay role grants so every role holder counts towards completeness. |
+| `badge` | | With `disclosure`: also write a [shields.io](https://shields.io/badges/endpoint-badge) endpoint-badge JSON to this path, so one step keeps the disclosure honest **and** emits a live status badge. Publish the file and embed it (below). Needs `version` ≥ `0.15.0`. |
 | `logs-rpc` | | RPC for the role replay's `eth_getLogs` (default: a public full-history gateway). |
 | `version` | tested version | ownerwatch version from PyPI. The default is pinned per Action release; `latest` takes the newest. |
 
@@ -60,6 +61,28 @@ If you publish an [ERC-8241](https://ethereum-magicians.org/t/erc-8241-protocol-
 
 `ownerwatch disclosure draft <addresses> --rpc <rpc>` writes a starting disclosure from chain state. The check pins every read to one block and fails when a declared owner, admin, role, threshold, delay or edge no longer matches, or when the chain shows control over a declared component that the disclosure leaves out. Without `config`, only the disclosure is checked. See [docs/erc-8241.md](https://github.com/imal1ice/ownerwatch/blob/main/docs/erc-8241.md).
 
+### A live "control disclosure" badge
+
+Set `badge` to also emit a shields.io endpoint badge that turns red the moment your on-chain control drifts from what you disclosed — one CI step, no backend:
+
+```yaml
+      - uses: imal1ice/ownerwatch-action@v1
+        with:
+          disclosure: erc-8241.json
+          rpc: https://ethereum-rpc.publicnode.com
+          badge: badge.json
+          version: "0.15.0"   # badge needs ownerwatch >= 0.15.0
+          fail-on-drift: false # keep CI green; the badge still reddens on drift
+```
+
+The file is written on every run regardless of the check's result. Publish it at a stable URL — commit it, push it to a Pages branch, or upload it as an artifact a deploy step serves — then embed it, replacing the URL with yours:
+
+```md
+[![control disclosure](https://img.shields.io/endpoint?url=https://YOURORG.github.io/YOURREPO/badge.json)](https://github.com/YOURORG/YOURREPO)
+```
+
+See the [badge guide](https://github.com/imal1ice/ownerwatch/blob/main/docs/disclosure-badge.md) for the full setup.
+
 ## Outputs
 
 | Output | Meaning |
@@ -67,6 +90,7 @@ If you publish an [ERC-8241](https://ethereum-magicians.org/t/erc-8241-protocol-
 | `drifted` | `true` when the report differs from the baseline or no baseline exists. |
 | `report` | Path of the freshly generated report, for `actions/upload-artifact` or a bot comment. |
 | `disclosure-ok` | `true` when the ERC-8241 disclosure matches chain state with nothing undisclosed; empty without `disclosure`. |
+| `badge` | Path of the shields.io endpoint-badge JSON written, when `badge` is set and supported; empty otherwise. |
 
 ## Notes
 
