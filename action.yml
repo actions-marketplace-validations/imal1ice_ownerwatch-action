@@ -1,5 +1,5 @@
 name: "ownerwatch admin-surface check"
-description: "Fail CI when the admin surface of your EVM contracts drifts: owners, proxy admins, implementations, roles, Safe signers and thresholds, timelock delays."
+description: "Fail CI when your EVM contracts' admin surface drifts: owners, proxy admins, roles, Safe signers, timelock delays."
 author: "imal1ice"
 branding:
   icon: "shield"
