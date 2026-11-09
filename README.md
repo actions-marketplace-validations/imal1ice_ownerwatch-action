@@ -1,5 +1,7 @@
 # ownerwatch admin-surface check
 
+[![GitHub Marketplace](https://img.shields.io/badge/Marketplace-ownerwatch%20admin--surface%20check-2ea44f?logo=github)](https://github.com/marketplace/actions/ownerwatch-admin-surface-check)
+
 A GitHub Action that re-probes the admin surface of your EVM contracts and fails the job when anything changed since the report you committed: owner, proxy admin, implementation, AccessControl role holders, Safe signers and threshold, timelock delay. Built on [ownerwatch](https://github.com/imal1ice/ownerwatch).
 
 Why: these change quietly. A signer rotates, a role gets granted for an integration and never revoked, a proxy admin moves. Nothing in your test suite notices. A weekly red check does.
